@@ -5,8 +5,8 @@ from enum import Enum
 
 import ptyprocess
 import utils
+from utils import BYTES, STR
 from command import *
-from utils import BYTES, STR, magic_search
 from globs import *
 from errors import *
 
@@ -14,28 +14,32 @@ from errors import *
 class AgentWrapper(object):
     """Basic agent class."""
 
-    PTY_TRIGGER_CMDS = ('telnet', 'ssh')
+    delay_retry_close = 0.05
+    ttyfork_probe_command = ('telnet', 'ssh')
+    CR = '\r'
+    LF = '\n'
 
     def __init__(self, logfile=None):
-        self.prompt = LOCAL_SHELL_PROMPT
-        self.pty = None
-        self.buffer = ''
+        self.prompt = DEFAULT_LOCAL_PS1
+        self.logfile = logfile
+        self.post_read = ''
+        self.tty = None
 
     def log(self, data=''):
-        nbytes = 0
+        nsent = 0
         if self.logfile and not self.logfile.closed:
             while data:
                 n = self.logfile.write(data)
-                nbytes += n
+                nsent += n
                 data = data[n:]
             self.logfile.flush()
 
-        return nbytes
+        return nsent
 
-    def flush(self, wait=0.0):
-        if self.pty:
-            out = self.buffer + STR(self.pty.read_all_nonblocking(readafterdelay=wait))
-            self.buffer = ''
+    def flush(self):
+        if self.tty:
+            out = self.post_read + STR(self.tty.read_all_nonblocking())
+            self.post_read = ''
             out = utils.strip_ansi_escapes(out)
             self.log(out)
 
@@ -52,7 +56,7 @@ class AgentWrapper(object):
         raise_up = False
 
         for exp in expects:
-            pos = magic_search(exp, out, find=True)
+            pos = utils.magic_search(exp, out, find=True)
             if pos < 0:
                 raise_up = True
                 break
@@ -68,7 +72,7 @@ class AgentWrapper(object):
         raise_up = False
 
         for esc in escapes:
-            if magic_search(esc, out):
+            if utils.magic_search(esc, out):
                 raise_up = True
                 break
 
@@ -77,5 +81,47 @@ class AgentWrapper(object):
     def probe_read(self, command):
         
 
-    def exec_cmd(self, command):
-        
+    def exec(self, command):
+        if isinstance(command, BuiltinCmd):
+            if hasattr(command, 'exec'):
+                return command.exec()
+            else:
+                raise BuiltinCmdError('Builtin Command Error: %s, no EXCE method' %(command.args[0]))
+
+        if isinstance(command, ShellCmd):
+            tty = self.tty
+            if tty and not tty.closed:
+                if not tty.isalive():
+                    raise 
+
+
+    def close_tty(self):
+        if self.tty and not self.tty.closed:
+            self.flush()
+            append = 'Close TTY ...'
+            self.log('\n\n' + append + '\n\n')
+            while not self.tty.closed:
+                try:
+                    self.tty.close()
+                except:
+                    time.sleep(self.delay_retry_close)
+
+        self.prompt = DEFAULT_LOCAL_PS1
+        self.tty = None
+
+    def exit(self):
+        self.flush()
+        self.log('\n\n' + str(self) + '\n')
+        self.close_tty()
+        self.close_handler()
+
+    def __str__(self):
+        header = 'AGENT INFO:'
+        ttydesc = str(self.tty)
+        logname = self.logfile.name if self.logfile else 'NONE'
+        prompt = self.prompt
+
+        return utils.concat_text_lines(header, ttydesc, logname, prompt)
+
+    def __repr__(self):
+        return self.__str__()

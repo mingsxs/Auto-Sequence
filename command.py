@@ -18,13 +18,13 @@ __all__ = [
     'BuiltinCmd',
     'ShellCmd',
     'CTRL_C',
-    'SPAWN',
-    'SPAWN_WAIT',
+    'RUN',
+    'RUN_WAIT',
     'CLOSE',
     'ENTER',
     'WAIT',
     'PULSE',
-    'PROMPTSET',
+    'SETPROMPT',
     'FIND',
     'SUBSEQUENCE',
     'LOOP',
@@ -87,7 +87,7 @@ class Cmd(object):
     """Base command class"""
     def __init__(self, **kw):
         # each command must contain following args
-        self.is_builtin = False    # default command type is shell command
+        self.command = None
         self.terminator = None  # string to probe the termination of execution
         self.probe_count = 0    # how many times we need to probe
         self.output = ''        # command output, for later populating
@@ -106,23 +106,23 @@ class Cmd(object):
         setattr(self, key, value)
 
     def __str__(self):
-        if self.is_builtin:
+        if isinstance(self, BuiltinCmd)
             return self.token + ': ' + self.description
-        else:
+        if isinstance(self, ShellCmd)
             return self.command
 
     def __repr__(self):
-        if self.is_builtin:
-            rpr1 = str(self) + newline
-            rpr2 = 'usage: ' + self.usage + newline
-            cmd_rpr = rpr1 + rpr2
+        if isinstance(self, BuiltinCmd)
+            rpr1 = str(self)
+            rpr2 = 'usage: ' + self.usage
+            cmd_rpr = utils.concat_text_lines(rpr1, rpr2)
         else:
-            cmd_rpr = 'shell command: ' + self.command + newline
+            cmd_rpr = 'shell command: ' + self.command + '\n'
 
-        arg_rpr = 'args: ' + repr(self.args) + newline
-        dict_rpr = 'dict: ' + repr(self.dict) + newline
+        arg_rpr = 'args: ' + repr(self.args)
+        dict_rpr = 'dict: ' + repr(self.dict)
 
-        return (cmd_rpr + arg_rpr + dict_rpr + self.output)
+        return utils.concat_text_lines(cmd_rpr, arg_rpr, dict_rpr, self.output)
 
     @property
     def dict(self):
@@ -162,15 +162,7 @@ class ShellCmd(Cmd):
         self.expects = f(args, 1)
         self.escapes = f(args, 2)
 
-        self.newline = '\n'     # by default, newline for shell commands is '\n'
-
-#    def __repr__(self):
-#        cmd_rpr = 'command: ' + self.command + newline
-#        arg_rpr = 'args: ' + repr(self.args) + newline
-#        dict_rpr = 'dict: ' + repr(self.dict) + newline
-#
-#        return (cmd_rpr + arg_rpr + dict_rpr + self.output)
-
+        self.enterchar = None
 
 #
 #
@@ -182,7 +174,6 @@ class BuiltinCmd(Cmd):
     """Builtin command class"""
     def __init__(self, args, **kw):
         super().__init__(self, **kw)
-        self.is_builtin = True  # if this command is a builtin command
         self.is_seq_cmd = True  # if this command is sequence command, if not, don't append it to the sequence
         self.timeout = DEFAULT_BLTINCMD_TIMEOUT
         self.args = args
@@ -201,14 +192,9 @@ class BuiltinCmd(Cmd):
 
         return inst
 
-#    def __repr__(self):
-#        cls = type(self)
-#        cmd_rpr = cls.token + ': ' + cls.description + newline
-#        arg_rpr = 'ARGS: ' + repr(self.args) + newline
-#        dict_rpr = 'DICT:' + repr(self.dict) + newline
-#
-#        return (cmd_rpr + arg_rpr + dict_rpr)
-
+    def exec(self):
+        print("Warning: command `%s` doesn't implement exec method, bypassed.")
+        return False
 
 """
 CTRL-C
@@ -222,7 +208,7 @@ class CTRL_C(BuiltinCmd):
 
     def __init__(self, args, **kw):
         super().__init__(args, **kw)
-        self.command = 'CTRL-C'
+        #self.command = 'CTRL-C'
 
     @classmethod
     def syntax_check(cls, args):
@@ -246,12 +232,12 @@ class CTRL_C(BuiltinCmd):
 #        return True
 #
 """
-SPAWN
+RUN
 """
-class SPAWN(BuiltCmd):
+class RUN(BuiltCmd):
     """Spawn a new sequence worker and dont wait"""
-    token = 'SPAWN'
-    usage = 'SPAWN [seq_file] [loops]'
+    token = 'RUN'
+    usage = 'RUN [seq_file] [loops]'
     argc = (2, 3,)
     description = 'spawn process running a new sequence and doesn\'t wait for it to end.'
 
@@ -302,12 +288,12 @@ class SPAWN(BuiltCmd):
         return True
 
 """
-SPAWN_WAIT
+RUN_WAIT
 """
-class SPAWN_WAIT(BuiltinCmd):
+class RUN_WAIT(BuiltinCmd):
     """Spawn a new sequence worker and wait for it to end"""
-    token = 'SPAWN_WAIT'
-    usage = 'SPAWN_WAIT [seq_file] [loops]'
+    token = 'RUN_WAIT'
+    usage = 'RUN_WAIT [seq_file] [loops]'
     argc = (2, 3,)
     description = 'spawn process running a new sequence and wait for it to end.'
 
@@ -424,7 +410,7 @@ class ENTER(BuiltinCmd):
 
 #    def exec(self):
 #        this_worker = get_this_worker()
-#        return this_worker.run_command(ShellCmd(('',)))
+#        return this_worker.exec_command(ShellCmd(('',)))
 #
 """
 WAIT
@@ -438,7 +424,7 @@ class WAIT(BuiltinCmd):
 
     def __init__(self, args, **kw):
         super().__init__(args, **kw)
-        self.waitsec = utils.time2sec(self.time)
+        self.waitsec = utils.convert_time(self.time)
 
     @classmethod
     def syntax_check(cls, args):
@@ -495,15 +481,15 @@ class PULSE(BuiltinCmd):
 #    def exec(self):
 #        this_worker = get_this_worker()
 #        pulse_cmd = "while :; do echo ''; sleep 3600; done"
-#        return this_worker.run_command(ShellCmd(pulse_cmd,))
+#        return this_worker.exec_command(ShellCmd(pulse_cmd,))
 #
 """
-PROMPTSET
+SETPROMPT
 """
-class PROMPTSET(BuiltinCmd):
+class SETPROMPT(BuiltinCmd):
     """Set THIS agent's pty prompt"""
-    token = 'PROMPTSET'
-    usage = 'PROMPTSET [promptstr]'
+    token = 'SETPROMPT'
+    usage = 'SETPROMPT [promptstr]'
     argc = (2,)
     description = 'set current agent\'s pty prompt.'
 
@@ -573,7 +559,7 @@ class FIND(BuiltinCmd):
             else:
                 command = ShellCmd(('cd ' + d, ))
 
-            r, m, o = this_worker.run_command(command)
+            r, m, o = this_worker.exec_command(command)
 
             if utils.magic_search(self.fname, o):
                 return (True, o)

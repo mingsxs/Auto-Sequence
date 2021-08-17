@@ -60,8 +60,8 @@ class SequenceWorker(object):
 
     def logging_error(self, errorinfo):
         if not self.errordumpfile:
-            error_header = '******ERROR DUMP MESSAGE******' + newline + newline
-            error_title = 'TEST SEQUENCE: %s' %(self.seq_file) + newline + newline
+            error_header = '******ERROR DUMP MESSAGE******\n\n'
+            error_title = 'TEST SEQUENCE: %s\n\n' %(self.seq_file)
             errordumpfile = utils.new_log_path(sequence=self.seq_file.split(os.sep)[-1], suffix='errordump')
             self.errordumpfile = open(errordumpfile, mode='w')
             self.errordumpfile.write(error_header + error_title)
@@ -81,9 +81,9 @@ class SequenceWorker(object):
         self.uds.send_server_msg(msg)
         # logging error dump object
         if self.errordump:
-            errinfo = newline + 'DUMP ERROR INFO:' + newline + repr(self.errordump) + newline
-            ptyinfo = 'AGENT INFO:' + newline + repr(self.agent) + newline
-            self.logging_error(errinfo + newline + ptyinfo + newline)
+            errinfo = '\nDUMP ERROR INFO:\n' + repr(self.errordump) + '\n'
+            ttyinfo = 'AGENT INFO:\n' + repr(self.agent) + '\n'
+            self.logging_error(errinfo + '\n' + ttyinfo + '\n')
             self.errordump = None
         # close worker agent
         if self.agent:
@@ -106,16 +106,16 @@ class SequenceWorker(object):
     def format_errinfo(self, cmd, error=None):
         '''format error to error info strings, for concatenating and logging'''
         if type(error) in (ExpectFailure, TimeoutError, BuiltinCmdError):
-            errdesc = '%s: ' %(type(error).__name__) + (error.args[0] if error.args else 'NARG') + newline
+            errdesc = '%s: ' %(type(error).__name__) + (error.args[0] if error.args else 'NARG')
         else:
-            errdesc = repr(error) + newline
+            errdesc = repr(error)
 
-        commandinfo = 'Command: %s' %(cmd if cmd else 'ENTER') + newline
-        sessioninfo = 'Session: %s' %(self.agent.this_session) + newline
-        sequenceinfo = 'Sequence: %s' %(self.seq_file) + newline
-        loopinfo = 'Loop: %d' %(self.cmplt_running_loops + 1) + newline
+        commandinfo = 'Command: %s' %(cmd if cmd else 'ENTER')
+        sessioninfo = 'Session: %s' %(self.agent.this_session)
+        sequenceinfo = 'Sequence: %s' %(self.seq_file)
+        loopinfo = 'Loop: %d' %(self.cmplt_running_loops + 1)
 
-        errinfo = errdesc + commandinfo + sessioninfo + sequenceinfo + loopinfo
+        errinfo = utils.concat_text_lines(errdesc, commandinfo, sessioninfo, sequenceinfo, loopinfo)
 
         return errinfo
 
@@ -136,12 +136,12 @@ class SequenceWorker(object):
             raise_up = True
         # other errors
         else:
-            self.logging_error(newline + 'ERROR INFO:' + newline)
+            self.logging_error('\nERROR INFO:\n')
             #self.logging_error(traceback.format_exc())
             #self.logging_error(sys.exc_info()[2])
-            self.logging_error(errinfo + newline)
-            ptyinfo = 'AGENT INFO:' + newline + repr(self.agent)
-            self.logging_error(ptyinfo + newline)
+            self.logging_error(errinfo + '\n')
+            ttyinfo = 'AGENT INFO:\n' + repr(self.agent)
+            self.logging_error(ttyinfo + '\n')
 
         if raise_up:
             # send loop failure message to the master to end master sensing
@@ -160,29 +160,22 @@ class SequenceWorker(object):
             # later to master, which will record these messages.
             self.loop_failures.append(errinfo)
 
-    def run_command(self, command):
+    def exec_command(self, command):
         '''run single command and handle errors, no matter builtin command or normal shell command'''
         output = ''
         result = MSGS.command_result_pass  # by default pass
-        strcmd = str(command)
 
-        if command.is_builtin and hasattr(command, 'exec'):
-            if not command.exec():  # run command by its exec
-                result = MSGS.command_result_fail
-                error = BuiltinCmdError('Builtin Command Error: %s' %(strcmd))
-                self.handle_error(strcmd, error)
-        else:
-            try:
-                output = self.agent.exec_cmd(command)
-            except Exception as error:
-                if type(error) in (ExpectFailure, TimeoutError):
-                    result = MSGS.command_result_fail   # timeout error and expect failure are test failure
-                else:
-                    result = MSGS.test_need_recovery # unknown errors typically indicate environment failure
+        try:
+            output = self.agent.exec(command)
+        except Exception as error:
+            if type(error) in (ExpectFailure, TimeoutError):
+                result = MSGS.command_result_fail   # timeout error and expect failure are test failure
+            else:
+                result = MSGS.test_need_recovery # unknown errors typically indicate environment failure
 
-                if hasattr(error, 'output'):
-                    output = error.output   # error obj will hold the command's output when exception occurs
-                self.handle_error(strcmd, error)
+            if hasattr(error, 'output'):
+                output = error.output   # error obj will hold the command's output when exception occurs
+            self.handle_error(str(command), error)
 
         return result, output
 
@@ -213,7 +206,7 @@ class SequenceWorker(object):
             while cmd_counter < len(self.running_sequence):
                 self.running_command = self.running_sequence[cmd_counter]
                 # run this command
-                result, output = self.run_command(self.running_command)
+                result, output = self.exec_command(self.running_command)
                 # test need recovery
                 if result == MSGS.test_need_recovery:
                     loop_result = result
@@ -221,9 +214,9 @@ class SequenceWorker(object):
                     if test_recovery_retry == 0:
                         e = RecoveryError('Recovery failed after %r retry at loop %r' %(TEST_RECOVERY_RETRY,
                                                                                         running_loop(self)))
-                        self.logging_error(newline + '****************ERROR DUMP END****************' + newline)
-                        edesc = newline + repr(e) + newline
-                        self.logging_error(edesc + newline)
+                        self.logging_error('\n****************ERROR DUMP END****************\n')
+                        edesc = '\n' + repr(e) + '\n'
+                        self.logging_error(edesc + '\n')
                         self.stop()
                         return 0        # exit worker, quit
 
@@ -247,7 +240,7 @@ class SequenceWorker(object):
                     self.spawned_workers = []
                     self.loop_failures = []
                     loop_result = MSGS.loop_result_pass
-                    self.agent.close_pty()  # close pty
+                    self.agent.close_tty()  # close tty
                     cmd_counter = 0         # reset command counter
                 else:
                     cmd_counter += 1
@@ -273,7 +266,7 @@ class MasterWorker(object):
 
     def logging_failure(self, data):
         if self.failure_logfile is None:
-            log_header = '********FAILURE LOGGING********' + newline + newline
+            log_header = '********FAILURE LOGGING********' + '\n\n'
             filename = utils.new_log_path(sequence=self.init_sequence_file.split(os.sep)[-1], suffix='failure')
             self.failure_logfile = open(filename, mode='w')
             self.failure_logfile.write(log_header)
@@ -297,17 +290,17 @@ class MasterWorker(object):
                 if signal == MSGS.worker_run_cmplt.value:
                     worker['STATUS'] = 'C'          # 'C' stands for Completed
                 elif signal == MSGS.test_need_recovery.value:
-                    errorlog = newline + 'ERROR LOOP: %r' %(msg['LOOP']) + newline + 'ERROR MESSAGE:' + newline
+                    errorlog = '\nERROR LOOP: %r \nERROR MESSAGE:\n' %(msg['LOOP'])
                     for elog in msg['MSGQ']:
-                        errorlog = errorlog + elog + newline
+                        errorlog = errorlog + elog + '\n'
                     self.logging_failure(errorlog)
                 elif signal == MSGS.loop_result_fail.value:
                     worker['FAILURE-LOOPS'] += 1
                     failureinfo = { msg['LOOP']: msg['MSGQ'] }
                     worker['FAILURE-MESSAGES'].update(failureinfo)
-                    failurelog = newline + 'FAILURE LOOP: %r' %(msg['loop']) + newline + 'FAILURE MESSAGES:' + newline
+                    failurelog = '\nFAILURE LOOP: %r \nFAILURE MESSAGES:\n' %(msg['loop'])
                     for flog in msg['MSGQ']:
-                        failurelog = failurelog + flog + newline
+                        failurelog = failurelog + flog + '\n'
                     self.logging_failure(failurelog)
                 else:
                     worker['SUCCESS-LOOPS'] += 1    # loop pass
@@ -345,12 +338,12 @@ def run_sequence_worker(sequence_file, sequence_loops):
     job = SequenceWorker(sequence_file, sequence_loops)
     if job.logfile and not job.logfile.closed:
         line = '*************SEQUENCE LOGGING***************'
-        job.logfile.write(line + newline + newline)
+        job.logfile.write(line + '\n\n')
         line = 'SEQUENCE FILE: %s' %(sequence_file)
-        job.logfile.write(line + newline + newline)
+        job.logfile.write(line + '\n\n')
         job.logfile.flush()
 
-    #print(newline + '------Sequence Worker Started------' + newline)
+    #print('\n------Sequence Worker Started------\n')
     #print('Worker sequence file: %s' %(sequence_file))
     #print('Worker sequence:')
     #for command in job.running_sequence:
@@ -363,7 +356,7 @@ def run_sequence_worker(sequence_file, sequence_loops):
     #      (', log dumped into: %s' %(logfile.name) if logfile else ''))
     if job.logfile and not job.logfile.closed:
         line = 'Test sequence completed successfully...'
-        job.logfile.write(newline + newline + line + newline)
+        job.logfile.write('\n\n' + line + '\n')
         job.logfile.flush()
     # job completes
     job.stop()
@@ -397,9 +390,9 @@ def start_master(main_sequence_file, main_sequence_loops=1):
         # process incoming message
         master.update_worker_status(this_uds.recv_client_msg())
 
-        window_header = newline + newline + 'RUNNING WORKERS: %d ' %(len(master.seqworkers)) + newline
+        window_header = '\n\nRUNNING WORKERS: %d \n' %(len(master.seqworkers))
         time_consume = str(datetime.timedelta(seconds=int(time.time() - t_start)))
-        window_display = window_header + 'TIME CONSUME: %s' %(time_consume) + newline + newline
+        window_display = window_header + 'TIME CONSUME: %s\n\n' %(time_consume)
         cursor_lines = 5
         # quit everything if all test workers exit
         if not master.some_worker_running:
@@ -415,10 +408,10 @@ def start_master(main_sequence_file, main_sequence_loops=1):
             success_loops = worker['SUCCESS-LOOPS']
             failure_loops = worker['FAILURE-LOOPS']
             window_display = window_display + \
-                '* Worker [%s]: %d total loops, %d loops PASS, %d loops FAIL ...' %(worker['NAME'],
+                '* Worker [%s]: %d total loops, %d loops PASS, %d loops FAIL ...\n' %(worker['NAME'],
                                                                                     worker['TOTAL-LOOPS'],
                                                                                     success_loops,
-                                                                                    failure_loops) + newline
+                                                                                    failure_loops)
             cursor_lines += 1
 
         # refresh window display lines
@@ -429,24 +422,22 @@ def start_master(main_sequence_file, main_sequence_loops=1):
         if WIN_DISPLAY_EN.value > 0:
             cursor.erase_lines_upward(cursor_lines)
     # display window summary when test completes
-    window_summary_display = newline + 'RESULT SUMMARY:' + newline + newline
+    window_summary_display = '\nRESULT SUMMARY:\n\n'
     for worker in master.seqworkers:
         success_loops = worker['SUCCESS-LOOPS']
         failure_loops = worker['FAILURE-LOOPS']
-        window_summary_display = newline + window_summary_display + \
-            '* Sequence [%s]>> Total loops: %d, %d loops PASSED, %d loops FAILED' %(worker['NAME'],
+        window_summary_display = '\n' + window_summary_display + \
+            '* Sequence [%s]>> Total loops: %d, %d loops PASSED, %d loops FAILED\n' %(worker['NAME'],
                                                                                      success_loops+failure_loops,
                                                                                      success_loops,
-                                                                                     failure_loops) + newline
+                                                                                     failure_loops)
         if worker['FAILURE-MESSAGES']:
             window_summary_display += 'FAILURE LOOPS: '
             window_summary_display += ', '.join([str(x) for x in worker['FAILURE-MESSAGES'].keys()])
-        window_summary_display += newline
+        window_summary_display += '\n'
 
     sys.stdout.write(window_summary_display)
-    sys.stdout.write(newline)
-    sys.stdout.write('Failure log dumped to: %s' %(master.failure_logfile.name if master.failure_logfile else 'NA'))
-    sys.stdout.write(newline + newline)
+    sys.stdout.write('\nFailure log dumped to: %s\n\n' %(master.failure_logfile.name if master.failure_logfile else 'NA'))
     sys.stdout.flush()
     if master.failure_logfile and not master.failure_logfile.closed:
         master.failure_logfile.flush()

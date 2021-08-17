@@ -71,14 +71,10 @@ LOOP_ITERATIONS = 1                         # test loop iterations
 MAIN_SEQUENCE_FILE = ''                     # entry sequence file, the sequence to start all tests
 
 #print_window_message = True
-LOCAL_SHELL_PROMPT = '>>>'                  # local shell prompt string
-SESSION_CONNECT_RETRY = 3                   # session connect retry count
+DEFAULT_LOCAL_PS1 = '>>>'                   # local shell prompt string
 TEST_RECOVER_RETRY = 3                      # test recover retry count
 SESSION_PROMPT_RETRY = 4                    # session prompt set/get retry count
 SESSION_PROMPT_RETRY_TIMEOUT = 5            # session prompt set/get retry timeout
-BUILTIN_MONITOR_INTERVAL = 3.0              # time period for builtin monitor command
-PROMPT_OFFSET_RANGE = 16                    # offset range to check if prompt string is reached
-BASE_SERIAL_PORT = 2003                     # base serial port for telnet connection
 
 
 DELAY_AFTER_QUIT = 0.8                      # internal delay const
